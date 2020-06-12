@@ -26,14 +26,6 @@ N0 = 1.4e24;
 tauP = 1.927e-12; % photon lifetime [s]
 tauS = 2.04e-9; % carrier lifetime [s]
 alpha = 3.0; % alpha parameter
-Nth = 0.0;
-Jth = 0.0;
-J = 0.0;
-kap = 0.0;
-tau = 0.0 ;
-detun = 0.0;
-omega0 = 0.0;
-phaseShift = 0.0;
 M = 3;
 C = 2.99792458e8;
 Nth = N0 + 1.0 / tauP / Gn;
@@ -93,6 +85,7 @@ end
 
 arrI = [];
 arrA = [];
+inverseI = [];
 
 for i = 1 : n
     t = h * (trans + i);
@@ -101,6 +94,7 @@ for i = 1 : n
     o2 = a(1) * a(1) * 1e-20;
     arrI(i) = o1;
     arrA(i) = o2;
+    inverseI(i) = 1/i;
     
     x = zeros(1, M);
     b = zeros(4, M);
@@ -129,3 +123,4 @@ for i = 1 : n
     end
 end
 plot(arrI, arrA);
+plot(inverseI, fft(arrA));
