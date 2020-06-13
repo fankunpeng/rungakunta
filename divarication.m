@@ -71,6 +71,11 @@ phaseShift= 2*pi.*tau_ex.*E_GS./h; % feedback phase, 0.0098...0.98*2*pi; then th
 phaseShift = rem(phaseShift,2*pi);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Runge Kutta 4 slover
+%a - initial condition - 待定 等算的时候我给你说
+% nr - 10e-9, 2*Ith(52mA) = 104mA
+a = [7.231082211578302e+05, 1.215813271872004e+07, 1.496669230548948e+07, 0, 1.465414777198156e+05, 0];
+%a = [7.231082211578302e+05, 1.215813271872004e+07, 1.496669230548948e+07, 0, 1.465414777198156e+05, 0];
+
 M = 6;
 h = 5.0e-12;
 transient = 5000.0e-9; 
@@ -79,11 +84,15 @@ div = 10;
 trans = floor(transient / h);
 n = floor(tMax / h);
 
-%a - initial condition - 待定 等算的时候我给你说
-% nr - 10e-9, 2*Ith(52mA) = 104mA
-a = [7.231082211578302e+05, 1.215813271872004e+07, 1.496669230548948e+07, 0, 1.465414777198156e+05, 0];
-%a = [7.231082211578302e+05, 1.215813271872004e+07, 1.496669230548948e+07, 0, 1.465414777198156e+05, 0];
-
+plotCnt = 50;
+plotMax = 50;
+paraMin = 0.0;
+paraMax = 1e-12;
+paraNum = 200;
+paraDiv = (paraMax - paraMin) / paraNum;
+prev = 0;
+now = 0;
+next = 0;
 
 % initial phase shift
 delayNum = floor(tau_ex / h);
@@ -92,98 +101,116 @@ DELAY_MAX = 100000;
 eDelay = zeros(1, DELAY_MAX);
 phiDelay = zeros(1, DELAY_MAX);
 
+arrI = [];
+arrA = [];
+
 for i = 1 : DELAY_MAX
     eDelay(i) = a(5);
     phiDelay(i) = a(6);
 end
 
-for i = 1 : trans
-    t = h * i;
-    % rungakota
-    x = zeros(1, M);
-    b = zeros(4, M);
-    theta = rem(phaseShift + a(2) - phiDelay(delayIndex), 2.0 * pi);
-    for i = 1 : 4
-        for j = 1 : M
-            if i == 1
-                x(j) = a(j);
-            elseif i == 2
-                x(j) = a(j) + h * b(1,j) / 2.0;
-            elseif i == 3
-                x(j) = a(j) + h * b(2,j) / 2.0;
-            elseif i == 4
-                x(j) = a(j) + h * b(3,j) / 2.0;
+for p = 1 : paraNum
+    R_ref = paraMin + paraDiv * p; % reflectivity of external mi
+    k_c = (1-R1).*sqrt(R_ref)./sqrt(R1); % feedback strength
+
+    for i = 1 : trans
+        t = h * i;
+        % rungakota
+        x = zeros(1, M);
+        b = zeros(4, M);
+        theta = rem(phaseShift + a(2) - phiDelay(delayIndex), 2.0 * pi);
+        for i = 1 : 4
+            for j = 1 : M
+                if i == 1
+                    x(j) = a(j);
+                elseif i == 2
+                    x(j) = a(j) + h * b(1,j) / 2.0;
+                elseif i == 3
+                    x(j) = a(j) + h * b(2,j) / 2.0;
+                elseif i == 4
+                    x(j) = a(j) + h * b(3,j) / 2.0;
+                end
+                I=0.104;
+                f_ES = 1 - x(2)/(4*Nb);  % non-occupation probabilityfor ES
+                f_GS = 1 - x(3)/(2*Nb);  % non-occupation probabilityfor GS
+                
+                b(i,1) = I/q + x(2)/tau_ES_WL - x(1)*f_ES/tau_WL_ES - x(1)/tau_WL_spon - x(1)/tau_nr;
+                b(i,2) = x(1)*f_ES/tau_WL_ES + x(3)*f_ES/tau_GS_ES - x(2)/tau_ES_WL - x(2)*f_GS/tau_ES_GS - x(2)/tau_ES_spon - x(2)/tau_nr;
+                b(i,3) = x(2)*f_GS/tau_ES_GS - x(3)*f_ES./tau_GS_ES - x(3)/tau_GS_spon - x(3)/tau_nr - Nb/V_QD*Gamma*c/(nr)*a_GS*(2*x(3)/(2*Nb) - 1)*x(5)/(1 + epsilon_GS*x(5));
+                b(i,4) = 0;
+                b(i,5) = Nb*Gamma*c/(nr)*a_GS/V_QD*(2*x(3)/(2*Nb) - 1)*x(5)/(1 + epsilon_GS*x(5)) - x(5)/tau_p + Beta*x(3)/tau_GS_spon + 2*k_c/tau_in*sqrt(x(5)*eDelay(delayIndex))*cos(theta);  
+                b(i,6) = 0.5*alpha_LEF*(Gamma*c/(nr)*a_GS/V_QD*Nb*(2*x(3)/(2*Nb) - 1)/(1 + epsilon_GS*x(5))-1/tau_p) - k_c/tau_in*sqrt(eDelay(delayIndex)/x(5))*sin(theta);
             end
-            %x(1) - Nwl
-            %x(2) - Nes
-            %x(3) - Ngs
-            %x(4) - Ses = 0
-            %x(5) - Sgs
-            %x(5) - phi
-            I=0.104;
-            f_ES = 1 - x(2)/(4*Nb);  % non-occupation probabilityfor ES
-            f_GS = 1 - x(3)/(2*Nb);  % non-occupation probabilityfor GS
-            
-            b(i,1) = I/q + x(2)/tau_ES_WL - x(1)*f_ES/tau_WL_ES - x(1)/tau_WL_spon - x(1)/tau_nr;
-            b(i,2) = x(1)*f_ES/tau_WL_ES + x(3)*f_ES/tau_GS_ES - x(2)/tau_ES_WL - x(2)*f_GS/tau_ES_GS - x(2)/tau_ES_spon - x(2)/tau_nr;
-            b(i,3) = x(2)*f_GS/tau_ES_GS - x(3)*f_ES./tau_GS_ES - x(3)/tau_GS_spon - x(3)/tau_nr - Nb/V_QD*Gamma*c/(nr)*a_GS*(2*x(3)/(2*Nb) - 1)*x(5)/(1 + epsilon_GS*x(5));
-            b(i,4) = 0;
-            b(i,5) = Nb*Gamma*c/(nr)*a_GS/V_QD*(2*x(3)/(2*Nb) - 1)*x(5)/(1 + epsilon_GS*x(5)) - x(5)/tau_p + Beta*x(3)/tau_GS_spon + 2*k_c/tau_in*sqrt(x(5)*eDelay(delayIndex))*cos(theta);  
-            b(i,6) = 0.5*alpha_LEF*(Gamma*c/(nr)*a_GS/V_QD*Nb*(2*x(3)/(2*Nb) - 1)/(1 + epsilon_GS*x(5))-1/tau_p) - k_c/tau_in*sqrt(eDelay(delayIndex)/x(5))*sin(theta);
+        end
+        break
+        for i = 1 : M
+            a(i) = a(i) + h * (b(1,i) + 2.0 * b(2,i) + 2.0 * b(3,i) + b(4,i)) / 6.0;
+        end
+        eDelay(delayIndex) = a(5);
+        phiDelay(delayIndex) = a(6);
+        delayIndex = rem(delayIndex + 1, delayNum);
+        if delayIndex == 0
+            delayIndex = 1;
         end
     end
-    break
-    for i = 1 : M
-        a(i) = a(i) + h * (b(1,i) + 2.0 * b(2,i) + 2.0 * b(3,i) + b(4,i)) / 6.0;
-    end
-    eDelay(delayIndex) = a(5);
-    phiDelay(delayIndex) = a(6);
-    delayIndex = delayIndex + 1;
-end
-
-arrI = [];
-arrA = [];
-
-for i = 1 : n
-    t = h * (trans + i);
-    % output i % div == 0
-    o1 = h * i * 1e9;
-    o2 = a(5);
-    arrI(i) = o1;
-    arrA(i) = o2;
+    plotCnt = 0;
+    prev = 0.0;
+    now = 0.0;
+    next = 0.0;
     
-    x = zeros(1, M);
-    b = zeros(4, M);
-    theta = rem(phaseShift + a(2) - phiDelay(delayIndex), 2.0 * pi);
-    for i = 1 : 4
-        for j = 1 : M
-            if i == 1
-                x(j) = a(j);
-            elseif i == 2
-                x(j) = a(j) + h * b(1,j) / 2.0;
-            elseif i == 3
-                x(j) = a(j) + h * b(2,j) / 2.0;
-            elseif i == 4
-                x(j) = a(j) + h * b(3,j) / 2.0;
+    for i = 1 : n
+        prev = now;
+        now = next;
+        next = a(5);
+        if prev <= now && now >= next && i > 2
+            o1 = k_c * 1e-9;
+            o2 = now * 1e-6;
+            arrI(length(arrI)+1) = o1;
+            arrA(length(arrA)+1) = o2;
+            plotCnt = plotCnt + 1;
+        	if plotCnt > plotMax 
+				break;
             end
-            I=0.104;
-            f_ES = 1 - x(2)/(4*Nb);  % non-occupation probabilityfor ES
-            f_GS = 1 - x(3)/(2*Nb);  % non-occupation probabilityfor GS
-            
-            b(i,1) = I/q + x(2)/tau_ES_WL - x(1)*f_ES/tau_WL_ES - x(1)/tau_WL_spon - x(1)/tau_nr;
-            b(i,2) = x(1)*f_ES/tau_WL_ES + x(3)*f_ES/tau_GS_ES - x(2)/tau_ES_WL - x(2)*f_GS/tau_ES_GS - x(2)/tau_ES_spon - x(2)/tau_nr;
-            b(i,3) = x(2)*f_GS/tau_ES_GS - x(3)*f_ES./tau_GS_ES - x(3)/tau_GS_spon - x(3)/tau_nr - Nb/V_QD*Gamma*c/(nr)*a_GS*(2*x(3)/(2*Nb) - 1)*x(5)/(1 + epsilon_GS*x(5));
-            b(i,4) = 0;
-            b(i,5) = Nb*Gamma*c/(nr)*a_GS/V_QD*(2*x(3)/(2*Nb) - 1)*x(5)/(1 + epsilon_GS*x(5)) - x(5)/tau_p + Beta*x(3)/tau_GS_spon + 2*k_c/tau_in*sqrt(x(5)*eDelay(delayIndex))*cos(theta);  
-            b(i,6) = 0.5*alpha_LEF*(Gamma*c/(nr)*a_GS/V_QD*Nb*(2*x(3)/(2*Nb) - 1)/(1 + epsilon_GS*x(5))-1/tau_p) - k_c/tau_in*sqrt(eDelay(delayIndex)/x(5))*sin(theta);
         end
-    for i = 1 : M
-        a(i) = a(i) + h * (b(1,i) + 2.0 * b(2,i) + 2.0 * b(3,i) + b(4,i)) / 6.0;
-    end
-    eDelay(delayIndex) = a(5);
-    phiDelay(delayIndex) = a(6);
-    delayIndex = delayIndex + 1;
+
+        t = h * (trans + i);
+        x = zeros(1, M);
+        b = zeros(4, M);
+        theta = rem(phaseShift + a(2) - phiDelay(delayIndex), 2.0 * pi);
+        for i = 1 : 4
+            for j = 1 : M
+                if i == 1
+                    x(j) = a(j);
+                elseif i == 2
+                    x(j) = a(j) + h * b(1,j) / 2.0;
+                elseif i == 3
+                    x(j) = a(j) + h * b(2,j) / 2.0;
+                elseif i == 4
+                    x(j) = a(j) + h * b(3,j) / 2.0;
+                end
+                I=0.104;
+                f_ES = 1 - x(2)/(4*Nb);  % non-occupation probabilityfor ES
+                f_GS = 1 - x(3)/(2*Nb);  % non-occupation probabilityfor GS
+                
+                b(i,1) = I/q + x(2)/tau_ES_WL - x(1)*f_ES/tau_WL_ES - x(1)/tau_WL_spon - x(1)/tau_nr;
+                b(i,2) = x(1)*f_ES/tau_WL_ES + x(3)*f_ES/tau_GS_ES - x(2)/tau_ES_WL - x(2)*f_GS/tau_ES_GS - x(2)/tau_ES_spon - x(2)/tau_nr;
+                b(i,3) = x(2)*f_GS/tau_ES_GS - x(3)*f_ES./tau_GS_ES - x(3)/tau_GS_spon - x(3)/tau_nr - Nb/V_QD*Gamma*c/(nr)*a_GS*(2*x(3)/(2*Nb) - 1)*x(5)/(1 + epsilon_GS*x(5));
+                b(i,4) = 0;
+                b(i,5) = Nb*Gamma*c/(nr)*a_GS/V_QD*(2*x(3)/(2*Nb) - 1)*x(5)/(1 + epsilon_GS*x(5)) - x(5)/tau_p + Beta*x(3)/tau_GS_spon + 2*k_c/tau_in*sqrt(x(5)*eDelay(delayIndex))*cos(theta);  
+                b(i,6) = 0.5*alpha_LEF*(Gamma*c/(nr)*a_GS/V_QD*Nb*(2*x(3)/(2*Nb) - 1)/(1 + epsilon_GS*x(5))-1/tau_p) - k_c/tau_in*sqrt(eDelay(delayIndex)/x(5))*sin(theta);
+            end
+        for i = 1 : M
+            a(i) = a(i) + h * (b(1,i) + 2.0 * b(2,i) + 2.0 * b(3,i) + b(4,i)) / 6.0;
+        end
+        eDelay(delayIndex) = a(5);
+        phiDelay(delayIndex) = a(6);
+        delayIndex = rem(delayIndex + 1, delayNum);
+        if delayIndex == 0
+            delayIndex = 1;
+        end
+        end
     end
 end
+
 %% PLOT AREA
-plot(arrI, arrA);
+plot(arrI, arrA, '.');
